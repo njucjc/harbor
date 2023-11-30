@@ -21,6 +21,8 @@ const (
 	registryVPCEndpointTpl      = "https://registry-vpc.%s.aliyuncs.com"
 	registryInternalEndpointTpl = "https://registry-internal.%s.aliyuncs.com"
 	endpointTpl                 = "cr.%s.aliyuncs.com"
+
+	registryACREESuffix = ".cr.aliyuncs.com"
 )
 
 type authorizationToken struct {

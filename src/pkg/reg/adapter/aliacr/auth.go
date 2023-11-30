@@ -15,12 +15,9 @@
 package aliacr
 
 import (
-	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
 	"time"
-
-	"github.com/aliyun/alibaba-cloud-sdk-go/services/cr"
 
 	"github.com/goharbor/harbor/src/common/http/modifier"
 	"github.com/goharbor/harbor/src/lib/log"
@@ -31,9 +28,7 @@ type Credential modifier.Modifier
 
 // Implements interface Credential
 type aliyunAuthCredential struct {
-	region              string
-	accessKey           string
-	secretKey           string
+	registryApi         openapi
 	cacheToken          *registryTemporaryToken
 	cacheTokenExpiredAt time.Time
 }
@@ -46,39 +41,27 @@ type registryTemporaryToken struct {
 var _ Credential = &aliyunAuthCredential{}
 
 // NewAuth will get a temporary docker registry username and password via aliyun cr service API.
-func NewAuth(region, accessKey, secretKey string) Credential {
+func NewAuth(registryApi openapi) Credential {
 	return &aliyunAuthCredential{
-		region:     region,
-		accessKey:  accessKey,
-		secretKey:  secretKey,
-		cacheToken: &registryTemporaryToken{},
+		registryApi: registryApi,
+		cacheToken:  &registryTemporaryToken{},
 	}
 }
 
 func (a *aliyunAuthCredential) Modify(r *http.Request) (err error) {
 	if !a.isCacheTokenValid() {
 		log.Debugf("[aliyunAuthCredential.Modify.updateToken]Host: %s\n", r.Host)
-		var client *cr.Client
-		client, err = cr.NewClientWithAccessKey(a.region, a.accessKey, a.secretKey)
-		if err != nil {
-			return
+		if a.registryApi == nil {
+			return errors.New("repositoryApi is nil")
 		}
+		v, err := a.registryApi.GetAuthorizationToken()
+		if err != nil {
+			return err
+		}
+		a.cacheTokenExpiredAt = v.expiresAt
+		a.cacheToken.user = v.user
+		a.cacheToken.password = v.password
 
-		var tokenRequest = cr.CreateGetAuthorizationTokenRequest()
-		var tokenResponse *cr.GetAuthorizationTokenResponse
-		tokenRequest.SetDomain(fmt.Sprintf(endpointTpl, a.region))
-		tokenResponse, err = client.GetAuthorizationToken(tokenRequest)
-		if err != nil {
-			return
-		}
-		var v authorizationToken
-		err = json.Unmarshal(tokenResponse.GetHttpContentBytes(), &v)
-		if err != nil {
-			return
-		}
-		a.cacheTokenExpiredAt = v.Data.ExpireDate.ToTime()
-		a.cacheToken.user = v.Data.TempUserName
-		a.cacheToken.password = v.Data.AuthorizationToken
 	} else {
 		log.Debug("[aliyunAuthCredential] USE CACHE TOKEN!!!")
 	}
